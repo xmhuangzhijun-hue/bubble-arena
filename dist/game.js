@@ -11,6 +11,8 @@ const FRAME_DATA = [
 ];
 const $ = id => document.getElementById(id);
 const options = { mode: 'solo', difficulty: 'normal', theme: 'candy', character: 0, match: 'versus' };
+const touchDevice=()=>matchMedia('(pointer:coarse)').matches;
+function syncControls(){const mobile=touchDevice();document.body?.classList.toggle('touch-device',mobile);$('touch-controls').hidden=!mobile||arena?.phase!=='playing'||options.mode==='duo'||!$('exit-overlay').hidden;$('mobile-guide').hidden=!mobile;$('keyboard-guide').hidden=mobile;}
 const DIRS = [[0,-1],[1,0],[0,1],[-1,0]];
 const key = (x,y) => x + ',' + y;
 const point = (x,y) => ({ x: OX+x*TILE+TILE/2, y: OY+y*TILE+TILE/2 });
@@ -39,7 +41,7 @@ class Arena extends Phaser.Scene {
     this.input.keyboard.addCapture(['UP','DOWN','LEFT','RIGHT','SPACE','ENTER']);
     this.input.keyboard.on('keydown-P',()=>this.togglePause());this.input.keyboard.on('keydown-ESC',()=>this.togglePause());
     this.input.keyboard.on('keydown',event=>{
-      if(this.phase!=='playing')return;
+      if(this.phase!=='playing'||!$('exit-overlay').hidden)return;
       if(net?.active){net.keyInput(event);return;}
       const code=event.code||event.key;
       for(const p of this.players.filter(p=>p.human&&p.alive)){
@@ -102,14 +104,14 @@ class Arena extends Phaser.Scene {
     }
     $('menu').hidden=true;$('pause-overlay').hidden=true;$('result-overlay').hidden=true;$('phase-label').textContent='正在对战';$('mode-label').textContent=online?(options.match==='coop'?'联机合作':'联机对战'):options.mode==='duo'?'双人合作':'单人闯关';
     $('round-label').textContent='ROUND '+String(this.round).padStart(2,'0');$('pause-button').disabled=false;$('p1-keys').textContent=options.mode==='duo'?'W A S D':'↑ ↓ ← →';$('p2-guide').hidden=options.mode!=='duo';$('control-player').textContent=online?'你的角色':'玩家 1';$('pause-guide').textContent=online?'房主暂停':'随时暂停';
-    $('touch-controls').hidden=!matchMedia('(pointer:coarse)').matches||options.mode==='duo';
-    this.updateHUD();$('game').focus();tone(620,.15);if(online){this.winnerId=null;this.netRound=net.matchId;$('room-bar').hidden=false;$('p1-keys').textContent='↑ ↓ ← → / WASD';$('touch-controls').hidden=!matchMedia('(pointer:coarse)').matches;}
+    $('exit-overlay').hidden=true;window.bubbleControls?.release();syncControls();
+    this.updateHUD();$('game').focus({preventScroll:true});tone(620,.15);if(online){this.winnerId=null;this.netRound=net.matchId;$('room-bar').hidden=false;$('p1-keys').textContent='↑ ↓ ← → / WASD';}
   }
   updateHUD(){
     const seconds=Math.ceil(this.remaining/1000);$('time-label').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
     $('players').innerHTML=this.players.map(p=>`<div class="player-row ${p.alive?'':'dead'}"><span class="player-avatar avatar-${p.char}"></span><div class="player-info"><b>${p.name?escapeHtml(p.name)+(net?.localId===p.id?' · 你':''):p.human?'玩家 '+(p.id+1):'电脑 · '+CHAR_NAMES[p.char]}${p.alive?'':' · 出局'}</b><small>💣 ${p.capacity}　🔥 ${p.range}　${p.shield?'🛡':''}${p.glove?'🧤':''}${p.human?' ♥'+p.lives:''}</small></div><span class="player-score">${p.score}</span></div>`).join('');
   }
-  setPaused(paused){if(this.phase!=='playing'&&this.phase!=='paused')return;this.phase=paused?'paused':'playing';$('pause-overlay').hidden=!paused;$('phase-label').textContent=paused?'暂停中':'正在对战';this.touch.clear();if(!paused)$('game').focus();}
+  setPaused(paused){if(this.phase!=='playing'&&this.phase!=='paused')return;window.bubbleControls?.release();this.touch.clear();this.players.forEach(p=>p.pendingBombUntil=0);this.phase=paused?'paused':'playing';$('pause-overlay').hidden=!paused;$('phase-label').textContent=paused?'暂停中':'正在对战';syncControls();if(!paused)$('game').focus({preventScroll:true});}
   togglePause(){if(net?.active&&!net.isHost){$('status-line').textContent='联机对局由房主统一暂停。';return;}if(this.phase==='playing'||this.phase==='paused')this.setPaused(this.phase==='playing');}
   tileAt(x,y){return this.map[y]?.[x]??1;}
   bombAt(x,y){return this.bombs.find(b=>b.x===x&&b.y===y&&!b.removed);}
@@ -131,6 +133,7 @@ class Arena extends Phaser.Scene {
     bomb.x=x;bomb.y=y;const pos=point(x,y);bomb.sprite.setPosition(pos.x,pos.y-4);tone(270,.06);return true;
   }
   humanInput(p){
+    if(!$('exit-overlay').hidden&&(!net?.active||p.id===net.localId))return;
     if(net?.active){net.playerInput(p);return;}
     const wasd=options.mode==='duo'&&p.id===0;
     const list=wasd?[this.keys.W,this.keys.D,this.keys.S,this.keys.A]:[this.keys.UP,this.keys.RIGHT,this.keys.DOWN,this.keys.LEFT];
@@ -148,6 +151,7 @@ class Arena extends Phaser.Scene {
     const bomb={id:++this.bombId,x:p.x,y:p.y,owner:p.id,due:this.tick+60000/35,range:p.range,sprite,kind:'bomb'};
     this.bombs.push(bomb);p.activeBombs++;p.lastBomb=this.tick;this.audit.bombsPlaced++;tone(340,.07,'square',.025);return true;
   }
+  requestTouchBomb(p){if(!p?.alive||this.phase!=='playing')return false;if(p.move){p.pendingBombUntil=this.tick+500;return true;}return this.placeBomb(p);}
   blastCells(bomb){
     const cells=[{x:bomb.x,y:bomb.y}];
     if(bomb.kind==='mine'||bomb.kind==='gas')return cells;
@@ -315,7 +319,7 @@ class Arena extends Phaser.Scene {
     const live=new Set();for(const v of visuals){live.add(v.key);const pos=point(v.x,v.y);let sprite=this.remoteVisuals.get(v.key);if(!sprite){sprite=this.add.image(pos.x,pos.y,'atlas',v.frame);this.effectsLayer.add(sprite);this.remoteVisuals.set(v.key,sprite);}sprite.setPosition(pos.x,pos.y).setDisplaySize(v.size,v.size).setTint(v.tint||0xffffff);}
     for(const [id,sprite] of this.remoteVisuals)if(!live.has(id)){sprite.destroy();this.remoteVisuals.delete(id);}
     this.bombs=state.bombs;this.flames=state.flames;this.items=new Map(state.items.map(item=>[key(item.x,item.y),item]));
-    this.phase=state.phase;$('round-label').textContent='ROUND '+String(this.round).padStart(2,'0');$('mode-label').textContent=options.match==='coop'?'联机合作':'联机对战';$('pause-overlay').hidden=this.phase!=='paused';$('resume').disabled=true;$('resume').textContent='等待房主继续';$('pause-button').disabled=true;$('result-overlay').hidden=this.phase!=='result';$('phase-label').textContent=this.phase==='paused'?'房主暂停中':this.phase==='result'?'对局结束':'正在联机';$('touch-controls').hidden=this.phase!=='playing'||!matchMedia('(pointer:coarse)').matches;
+    this.phase=state.phase;$('round-label').textContent='ROUND '+String(this.round).padStart(2,'0');$('mode-label').textContent=options.match==='coop'?'联机合作':'联机对战';$('pause-overlay').hidden=this.phase!=='paused';$('resume').disabled=true;$('resume').textContent='等待房主继续';$('pause-button').disabled=true;$('result-overlay').hidden=this.phase!=='result';$('phase-label').textContent=this.phase==='paused'?'房主暂停中':this.phase==='result'?'对局结束':'正在联机';syncControls();if(this.phase!=='playing')window.bubbleControls?.release();
     if(this.phase==='result'){if(options.match==='versus')this.showOnlineResult();else{$('result-title').textContent=this.lastWon?'合作过关！':'本场结束';$('result-text').textContent='等待房主开始下一局。';$('next-round').textContent='等待房主';$('next-round').disabled=true;}}
     this.updateHUD();
   }
@@ -327,6 +331,7 @@ class Arena extends Phaser.Scene {
     const dt=Math.min(delta,50);this.tick+=dt;this.remaining=Math.max(0,this.remaining-dt);
     for(const p of this.players){
       if(!p.alive)continue;
+      if(p.pendingBombUntil){if(p.pendingBombUntil<this.tick)p.pendingBombUntil=0;else if(!p.move){p.pendingBombUntil=0;this.placeBomb(p);}}
       if(p.human)this.humanInput(p);else this.botInput(p);
       if(p.move){
         const m=p.move,f=Math.min(1,(this.tick-m.start)/m.duration),from=point(m.sx,m.sy),to=point(m.x,m.y);p.sprite.setPosition(Phaser.Math.Linear(from.x,to.x,f),Phaser.Math.Linear(from.y,to.y,f)-7-Math.sin(f*Math.PI)*3);p.ring.setPosition(p.sprite.x,p.sprite.y+19);
@@ -355,17 +360,21 @@ class Arena extends Phaser.Scene {
   }
 }
 const game=new Phaser.Game({type:Phaser.AUTO,width:832,height:616,parent:'game',backgroundColor:'#ffe8bd',scene:Arena,scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},render:{antialias:true,roundPixels:true},audio:{noAudio:true}});
-function selectMode(mode){if(net?.active&&mode!=='online')net.leave();options.mode=mode;document.querySelectorAll('#mode-options button').forEach(b=>b.classList.toggle('selected',b.dataset.value===mode));$('online-controls').hidden=mode!=='online';$('start').hidden=mode==='online';$('menu-hint').textContent=mode==='online'?'创建房间后，把链接发给好友。':mode==='duo'?'玩家 1：WASD + 空格　玩家 2：方向键 + Enter':'方向键移动 · 空格放炸弹';}
+function selectMode(mode){if(net?.active&&mode!=='online')net.leave();options.mode=mode;document.querySelectorAll('#mode-options button').forEach(b=>b.classList.toggle('selected',b.dataset.value===mode));$('online-controls').hidden=mode!=='online';$('start').hidden=mode==='online';$('menu-hint').textContent=mode==='online'?'创建房间后，把链接发给好友。':mode==='duo'?'玩家 1：WASD + 空格　玩家 2：方向键 + Enter':touchDevice()?'左手摇杆移动 · 右手点按放弹':'方向键移动 · 空格放炸弹';}
 document.querySelectorAll('#mode-options button').forEach(b=>b.addEventListener('click',()=>selectMode(b.dataset.value)));
 document.querySelectorAll('[data-character]').forEach(b=>b.addEventListener('click',()=>{options.character=Number(b.dataset.character);document.querySelectorAll('[data-character]').forEach(c=>c.classList.toggle('selected',c===b));tone(660,.06);}));
 $('difficulty').addEventListener('change',e=>options.difficulty=e.target.value);$('theme').addEventListener('change',e=>{options.theme=e.target.value;if(arena?.phase==='menu')arena.drawMap();});
 $('start').disabled=true;$('start').addEventListener('click',()=>arena?.startRound());
 $('pause-button').addEventListener('click',()=>arena?.togglePause());$('resume').addEventListener('click',()=>arena?.setPaused(false));
-function showMenu(){if(!arena)return;if(net?.active){net.leave();}arena.phase='menu';arena.touch.clear();$('menu').hidden=false;$('pause-overlay').hidden=true;$('result-overlay').hidden=true;$('touch-controls').hidden=true;$('room-bar').hidden=true;$('pause-button').disabled=true;$('phase-label').textContent='准备出发';$('resume').disabled=false;$('resume').textContent='继续游戏';$('next-round').disabled=false;}
-['back-menu','pause-menu','result-menu'].forEach(id=>$(id).addEventListener('click',showMenu));
+function showMenu(){if(!arena)return;window.bubbleControls?.release();if(net?.active){net.leave();}arena.phase='menu';arena.touch.clear();$('menu').hidden=false;$('pause-overlay').hidden=true;$('result-overlay').hidden=true;$('exit-overlay').hidden=true;$('touch-controls').hidden=true;$('room-bar').hidden=true;$('pause-button').disabled=true;$('phase-label').textContent='准备出发';$('resume').disabled=false;$('resume').textContent='继续游戏';$('next-round').disabled=false;syncControls();}
+let returnWasPlaying=false;
+function requestMenu(){if(!arena||!$('exit-overlay').hidden)return;if(!['playing','paused'].includes(arena.phase)){showMenu();return;}returnWasPlaying=arena.phase==='playing'&&!net?.active;window.bubbleControls?.release();arena.touch.clear();net?.releaseInput();if(returnWasPlaying)arena.setPaused(true);$('exit-text').textContent=net?.active?(net.isHost?'返回后会关闭房间，好友也会退出这场对局。':'返回后会离开当前房间。'): '返回后会结束当前对局。';$('exit-overlay').hidden=false;syncControls();$('exit-cancel').focus({preventScroll:true});}
+['back-menu','pause-menu','result-menu'].forEach(id=>$(id).addEventListener('click',requestMenu));
+$('home-link').addEventListener('click',event=>{if(arena&&['playing','paused'].includes(arena.phase)){event.preventDefault();requestMenu();}});
+$('exit-confirm').addEventListener('click',showMenu);
+$('exit-cancel').addEventListener('click',()=>{$('exit-overlay').hidden=true;if(returnWasPlaying&&arena?.phase==='paused')arena.setPaused(false);returnWasPlaying=false;syncControls();$('game').focus({preventScroll:true});});
 $('next-round').addEventListener('click',()=>{if(net?.active){if(net.isHost)net.startMatch();return;}if(arena.finished){arena.startRound(true);}else if(arena.lastWon){arena.round++;arena.startRound(false);}else arena.startRound(false);});
 $('sound').addEventListener('click',()=>{soundEnabled=!soundEnabled;$('sound').setAttribute('aria-pressed',String(soundEnabled));$('sound').setAttribute('aria-label',soundEnabled?'关闭声音':'开启声音');$('sound').querySelector('span').textContent=soundEnabled?'声音开':'声音关';tone(520,.15);});
 $('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.querySelector('.cabinet').requestFullscreen();}catch(_){$('status-line').textContent='当前窗口暂不支持全屏，可放大浏览器窗口。';}});
-document.querySelectorAll('[data-touch]').forEach(b=>{const action=b.dataset.touch;b.addEventListener('pointerdown',e=>{e.preventDefault();b.setPointerCapture(e.pointerId);if(action==='bomb'){if(net?.active)net.sendInput(-1,true);else if(arena?.phase==='playing')arena.placeBomb(arena.players[0]);}else arena?.touch.add(action);});for(const evt of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(evt,()=>arena?.touch.delete(action));});
 window.addEventListener('blur',()=>{if(arena?.phase==='playing'&&!net?.active)arena.setPaused(true);net?.releaseInput();});
 window.bubbleGame={snapshot:()=>({phase:arena?.phase,round:arena?.round,tick:arena?.tick,remaining:arena?.remaining,options:{...options},players:arena?.players.map(({id,x,y,alive,char,range,capacity,speed,activeBombs,score,shield,lives,move})=>({id,x,y,alive,char,range,capacity,speed,activeBombs,score,shield,lives,moving:!!move})),bombs:arena?.bombs.map(({id,x,y,owner,due,range,kind})=>({id,x,y,owner,due,range,kind})),items:arena?[...arena.items].map(([at,v])=>({at,type:v.type})):[],map:arena?.map.map(r=>[...r]),audit:arena?{...arena.audit}:null})};

@@ -11,12 +11,13 @@
   <link rel="stylesheet" href="assets.css">
   <link rel="stylesheet" href="online.css">
   <link rel="stylesheet" href="project.css">
+  <link rel="stylesheet" href="mobile.css?v=20261004">
 </head>
 <body>
   <main class="arcade">
     <header class="topbar">
-      <a class="wordmark" href="./" aria-label="Q版泡泡堂首页"><span class="q">Q</span><span>版<span class="pink">泡泡</span>堂</span><small>一起炸个痛快！</small></a>
-      <div class="tools"><button id="sound" aria-label="开启声音" aria-pressed="false">♪ <span>声音关</span></button><button id="fullscreen" aria-label="全屏游戏">⛶ <span>全屏</span></button></div>
+      <a class="wordmark" id="home-link" href="./" aria-label="Q版泡泡堂首页"><span class="q">Q</span><span>版<span class="pink">泡泡</span>堂</span><small>一起炸个痛快！</small></a>
+      <div class="tools"><button id="sound" aria-label="开启声音" aria-pressed="false">♪ <span>声音关</span></button><button id="fullscreen" aria-label="全屏游戏">⛶ <span>全屏</span></button><button id="back-menu" aria-label="重新选择">☰ <span>重新选择</span></button></div>
     </header>
     <div id="room-bar" class="room-bar" hidden><span id="room-summary"></span><span id="connection-status">联机中</span><button id="room-invite">复制邀请链接</button><button id="room-leave">退出房间</button></div>
     <div class="game-layout">
@@ -24,12 +25,12 @@
         <div class="cabinet-top"><span class="live-label" id="phase-label">准备出发</span><span id="round-label">ROUND 01</span><span class="timer" id="time-label">03:00</span></div>
         <div id="game" tabindex="0" aria-label="泡泡堂游戏画面，用方向键或WASD移动"></div>
         <div class="cabinet-bottom"><span id="status-line">炸开箱子，收集道具，躲开自己的炸弹！</span><button id="pause-button" disabled>Ⅱ 暂停</button></div>
+        <div class="touch-controls" id="touch-controls" hidden aria-label="手机操作区"><div class="move-stick" id="move-stick" role="button" tabindex="0" aria-label="拖动摇杆移动，松手停止"><span class="stick-arrow stick-up" aria-hidden="true">▲</span><span class="stick-arrow stick-left" aria-hidden="true">◀</span><span class="stick-arrow stick-down" aria-hidden="true">▼</span><span class="stick-arrow stick-right" aria-hidden="true">▶</span><span class="stick-thumb" id="stick-thumb" aria-hidden="true"></span></div><div class="bomb-control"><button class="touch-bomb" id="touch-bomb" aria-label="放炸弹">💣</button><span>点按放弹</span></div></div>
       </section>
       <aside class="sidebar">
         <section class="scoreboard"><h2>本场玩家 <span id="mode-label">单人闯关</span></h2><div id="players"></div></section>
-        <section class="instructions"><h2>怎么操作</h2><div class="control-row"><b class="blue" id="control-player">玩家 1</b><div><kbd id="p1-keys">↑ ↓ ← →</kbd><small>移动</small><kbd>空格</kbd><small>放炸弹</small></div></div><div class="control-row" id="p2-guide" hidden><b class="pink">玩家 2</b><div><kbd>↑ ↓ ← →</kbd><small>移动</small><kbd>Enter</kbd><small>放炸弹</small></div></div><div class="control-row secondary"><b id="pause-guide">随时暂停</b><div><kbd>P</kbd><small>或</small><kbd>Esc</kbd></div></div></section>
+        <section class="instructions"><h2>怎么操作</h2><p id="mobile-guide" hidden>左手拖动摇杆移动，松手停止；右手点按放弹，可以同时操作。顶部 ☰ 返回选择。</p><div id="keyboard-guide"><div class="control-row"><b class="blue" id="control-player">玩家 1</b><div><kbd id="p1-keys">↑ ↓ ← →</kbd><small>移动</small><kbd>空格</kbd><small>放炸弹</small></div></div><div class="control-row" id="p2-guide" hidden><b class="pink">玩家 2</b><div><kbd>↑ ↓ ← →</kbd><small>移动</small><kbd>Enter</kbd><small>放炸弹</small></div></div><div class="control-row secondary"><b id="pause-guide">随时暂停</b><div><kbd>P</kbd><small>或</small><kbd>Esc</kbd></div></div></div></section>
         <section class="powerups"><h2>捡到就是赚到</h2><div class="powerup-row"><span>💣</span><div><b>更多炸弹</b><small>同时放置的数量增加</small></div></div><div class="powerup-row"><span>🔥</span><div><b>更大范围</b><small>爆炸距离增加一格</small></div></div><div class="powerup-row"><span>👟</span><div><b>跑得更快</b><small>移动速度提升</small></div></div><div class="powerup-row"><span>🛡</span><div><b>护盾</b><small>挡住一次爆炸</small></div></div></section>
-        <button class="back-menu" id="back-menu">重新选择</button>
       </aside>
     </div>
     <footer><span>同机或联机，叫上朋友一起玩。</span><span>移动时留一条退路，连锁爆炸会提前引爆炸弹。</span></footer>
@@ -53,10 +54,11 @@
   </div>
   <div class="overlay" id="pause-overlay" hidden><section class="dialog"><small>喘口气</small><h2>游戏暂停</h2><p>准备好了，就继续出发。</p><button class="start-button" id="resume">继续游戏</button><button class="dialog-secondary" id="pause-menu">返回选择</button></section></div>
   <div class="overlay" id="result-overlay" hidden><section class="dialog"><div id="result-icon">🏆</div><small id="result-kicker">干得漂亮！</small><h2 id="result-title">闯关成功</h2><p id="result-text"></p><button class="start-button" id="next-round">下一关</button><button class="dialog-secondary" id="result-menu">返回选择</button></section></div>
-  <div class="touch-controls" id="touch-controls" hidden aria-label="触屏操作"><div class="dpad"><button data-touch="up" aria-label="向上">▲</button><button data-touch="left" aria-label="向左">◀</button><button data-touch="down" aria-label="向下">▼</button><button data-touch="right" aria-label="向右">▶</button></div><button class="touch-bomb" data-touch="bomb" aria-label="放炸弹">💣</button></div>
+  <div class="overlay" id="exit-overlay" hidden><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="exit-title"><small>还要继续玩吗？</small><h2 id="exit-title">返回选择？</h2><p id="exit-text">返回后会结束当前对局。</p><button class="start-button" id="exit-cancel">继续玩</button><button class="dialog-secondary" id="exit-confirm">确认返回</button></section></div>
   <script src="phaser.min.js"></script>
   <script src="peerjs.min.js"></script>
-  <script src="game.js"></script>
-  <script src="online.js"></script>
+  <script src="game.js?v=20261004"></script>
+  <script src="online.js?v=20261004"></script>
+  <script src="mobile-controls.js?v=20261004"></script>
 </body>
 </html>
