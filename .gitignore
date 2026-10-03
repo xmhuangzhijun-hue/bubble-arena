@@ -1,0 +1,14 @@
+node_modules/
+.openai/
+.env
+.env.*
+!.env.example
+work/
+reports/
+*.log
+*.zip
+*.tar
+*.swf
+*.pem
+*.key
+.DS_Store

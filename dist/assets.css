@@ -1,0 +1,5 @@
+.character-art{width:68px;height:68px;background-image:url('assets/atlas.png');background-size:272px 272px;background-color:transparent;filter:none}
+.art-0{background-position:-68px 0}.art-1{background-position:0 0}.art-2{background-position:-204px 0}.art-3{background-position:-136px 0}
+.player-avatar{background-image:url('assets/atlas.png');background-size:148px 148px;background-color:#315277}
+.avatar-0{background-position:-37px 0}.avatar-1{background-position:0 0}.avatar-2{background-position:-111px 0}.avatar-3{background-position:-74px 0}
+.cabinet:fullscreen{max-width:100vw;border-radius:0;display:flex;flex-direction:column;justify-content:center;align-items:center;background:#101f3e}.cabinet:fullscreen #game{width:min(100vw,calc((100vh - 100px)*832/616));flex:none}.cabinet:fullscreen .cabinet-top,.cabinet:fullscreen .cabinet-bottom{width:min(100vw,calc((100vh - 100px)*832/616))}
