@@ -3,6 +3,8 @@ const TILE = 44, COLS = 15, ROWS = 13, OX = 86, OY = 22;
 const COLORS = [0x40c8f4, 0xff70ba, 0xffaa38, 0xa4dc3a];
 const CHAR_NAMES = ['蓝蓝', '桃桃', '柠柠', '绿豆'];
 const CHAR_FRAMES = ['blue', 'pink', 'orange', 'green'];
+const TRAP_TEXTURES = {gas:'gas-trap',mine:'mine-trap'};
+const WEAPONS = {flame:{name:'火焰箭',hint:'向前铺火'},ice:{name:'冰箭',hint:'向前铺冰'},gas:{name:'汽弹',hint:'减速陷阱 · 对手踩中生效，不会倒计时爆炸'},grenade:{name:'手榴弹',hint:'向前投掷后爆炸'},mine:{name:'地雷',hint:'对手踩中爆炸，不会自动引爆'},rocket:{name:'火箭',hint:'向前发射'}};
 const FRAME_DATA = [
   ['pink-down',25,6,265,314],['blue-down',337,4,267,316],['green-down',651,6,286,314],['orange-down',962,0,267,320],
   ['pink-up',25,320,266,313],['blue-up',337,320,264,315],['green-up',653,320,266,313],['orange-up',962,320,268,316],
@@ -32,7 +34,7 @@ function tone(freq=440,duration=.08,type='sine',volume=.06) {
 }
 class Arena extends Phaser.Scene {
   constructor(){super('arena');this.phase='menu';this.round=1;this.tick=0;this.players=[];this.bombs=[];this.flames=[];this.projectiles=[];this.items=new Map();this.map=[];this.touch=new Set();this.audit={bombsPlaced:0,explosions:0,boxesDestroyed:0,pickups:0,chainReactions:0,deaths:0};}
-  preload(){this.load.image('atlas','assets/atlas.png');}
+  preload(){this.load.image('atlas','assets/atlas.png');this.load.image('gas-trap','assets/gas-trap.svg');this.load.image('mine-trap','assets/mine-trap.svg');}
   create(){
     arena=this;
     for(const [name,x,y,w,h] of FRAME_DATA)this.textures.get('atlas').add(name,0,x,y,w,h);
@@ -105,11 +107,17 @@ class Arena extends Phaser.Scene {
     $('menu').hidden=true;$('pause-overlay').hidden=true;$('result-overlay').hidden=true;$('phase-label').textContent='正在对战';$('mode-label').textContent=online?(options.match==='coop'?'联机合作':'联机对战'):options.mode==='duo'?'双人合作':'单人闯关';
     $('round-label').textContent='ROUND '+String(this.round).padStart(2,'0');$('pause-button').disabled=false;$('p1-keys').textContent=options.mode==='duo'?'W A S D':'↑ ↓ ← →';$('p2-guide').hidden=options.mode!=='duo';$('control-player').textContent=online?'你的角色':'玩家 1';$('pause-guide').textContent=online?'房主暂停':'随时暂停';
     $('exit-overlay').hidden=true;window.bubbleControls?.release();syncControls();
-    this.updateHUD();$('game').focus({preventScroll:true});tone(620,.15);if(online){this.winnerId=null;this.netRound=net.matchId;$('room-bar').hidden=false;$('p1-keys').textContent='↑ ↓ ← → / WASD';}
+    this.updateHUD();this.showWeaponStatus(this.players[online?net.localId:0]);$('game').focus({preventScroll:true});tone(620,.15);if(online){this.winnerId=null;this.netRound=net.matchId;$('room-bar').hidden=false;$('p1-keys').textContent='↑ ↓ ← → / WASD';}
   }
   updateHUD(){
     const seconds=Math.ceil(this.remaining/1000);$('time-label').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
     $('players').innerHTML=this.players.map(p=>`<div class="player-row ${p.alive?'':'dead'}"><span class="player-avatar avatar-${p.char}"></span><div class="player-info"><b>${p.name?escapeHtml(p.name)+(net?.localId===p.id?' · 你':''):p.human?'玩家 '+(p.id+1):'电脑 · '+CHAR_NAMES[p.char]}${p.alive?'':' · 出局'}</b><small>💣 ${p.capacity}　🔥 ${p.range}　${p.shield?'🛡':''}${p.glove?'🧤':''}${p.human?' ♥'+p.lives:''}</small></div><span class="player-score">${p.score}</span></div>`).join('');
+  }
+  showWeaponStatus(p,finished=false){
+    if(!p.human||(net?.active&&p.id!==net.localId))return;
+    const weapon=WEAPONS[p.weapon];
+    $('status-line').textContent=weapon?'玩家 '+(p.id+1)+' · '+weapon.name+'（'+p.ammo+'发）· '+weapon.hint:finished?'特殊弹药已用完 · 恢复普通炸弹，约 1.7 秒后爆炸':'普通炸弹 · 约 1.7 秒后爆炸';
+    if(net?.active||p.id===0){$('touch-bomb').textContent=weapon?({gas:'汽',mine:'雷',grenade:'榴',ice:'冰',flame:'火',rocket:'箭'}[p.weapon]):'💣';$('touch-bomb').setAttribute('aria-label',weapon?'使用'+weapon.name:'放炸弹');}
   }
   setPaused(paused){if(this.phase!=='playing'&&this.phase!=='paused')return;window.bubbleControls?.release();this.touch.clear();this.players.forEach(p=>p.pendingBombUntil=0);this.phase=paused?'paused':'playing';$('pause-overlay').hidden=!paused;$('phase-label').textContent=paused?'暂停中':'正在对战';syncControls();if(!paused)$('game').focus({preventScroll:true});}
   togglePause(){if(net?.active&&!net.isHost){$('status-line').textContent='联机对局由房主统一暂停。';return;}if(this.phase==='playing'||this.phase==='paused')this.setPaused(this.phase==='playing');}
@@ -121,7 +129,7 @@ class Arena extends Phaser.Scene {
     const [dx,dy]=DIRS[dir],x=p.x+dx,y=p.y+dy;p.dir=dir;
     if(this.tileAt(x,y)!==0)return false;
     const bomb=this.bombAt(x,y);
-    if(bomb){if(!p.glove||!this.pushBomb(bomb,dx,dy))return false;}
+    if(bomb&&!TRAP_TEXTURES[bomb.kind]){if(!p.glove||!this.pushBomb(bomb,dx,dy))return false;}
     p.move={sx:p.x,sy:p.y,x,y,start:this.tick,duration:this.stepDuration(p)};
     p.sprite.setFrame(CHAR_FRAMES[p.char]+(dir===0?'-up':'-down')).setFlipX(dir===3);
     return true;
@@ -172,7 +180,8 @@ class Arena extends Phaser.Scene {
       const offset=Math.floor(this.random()*4);
       for(let i=0;i<4;i++){
         const dir=(i+offset)%4,[dx,dy]=DIRS[dir],x=node.x+dx,y=node.y+dy,k=key(x,y);
-        if(seen.has(k)||this.tileAt(x,y)!==0||this.bombAt(x,y)||(extra&&extra.x===x&&extra.y===y))continue;
+        const bomb=this.bombAt(x,y);
+        if(seen.has(k)||this.tileAt(x,y)!==0||(bomb&&!TRAP_TEXTURES[bomb.kind])||(extra&&extra.x===x&&extra.y===y))continue;
         const arrival=this.tick+(node.path.length+1)*this.stepDuration(p),det= danger.get(k);
         if(det!==undefined&&arrival>=det-180&&arrival<=det+700)continue;
         seen.add(k);q.push({x,y,path:[...node.path,dir]});
@@ -230,11 +239,12 @@ class Arena extends Phaser.Scene {
     const k=key(p.x,p.y),item=this.items.get(k);if(!item||this.tick<item.available)return;
     switch(item.type){case'bomb':p.capacity=Math.min(8,p.capacity+1);break;case'fire':p.range=Math.min(8,p.range+1);break;case'speed':p.speed=Math.min(5,p.speed+1);break;case'shield':p.shield=1;break;case'glove':p.glove=true;break;case'life':p.lives=Math.min(5,p.lives+1);break;default:p.weapon=item.type;p.ammo=5;}
     p.score+=20;this.audit.pickups++;item.sprite.destroy();item.text?.destroy();this.items.delete(k);tone(960,.11,'sine',.04);
-    if(p.human){const names={bomb:'炸弹数量 +1',fire:'火力 +1',speed:'速度提升',shield:'获得护盾',glove:'现在可以推炸弹',life:'生命 +1',flame:'火焰箭',ice:'冰箭',gas:'汽弹',grenade:'手榴弹',mine:'地雷',rocket:'火箭'};$('status-line').textContent='玩家 '+(p.id+1)+' · '+names[item.type]+(p.weapon?'，放弹键使用（'+p.ammo+'发）':'');}
+    if(WEAPONS[item.type])this.showWeaponStatus(p);
+    else if(p.human&&(!net?.active||p.id===net.localId)){const names={bomb:'炸弹数量 +1',fire:'火力 +1',speed:'速度提升',shield:'获得护盾',glove:'现在可以推炸弹',life:'生命 +1'};$('status-line').textContent='玩家 '+(p.id+1)+' · '+names[item.type];}
   }
   explode(bomb,chain=false){
     if(bomb.removed)return;const cells=this.blastCells(bomb);bomb.removed=true;bomb.sprite.destroy();this.bombs=this.bombs.filter(b=>b!==bomb);
-    const owner=this.players[bomb.owner];if(owner)owner.activeBombs=Math.max(0,owner.activeBombs-1);
+    const owner=this.players[bomb.owner];if(owner&&bomb.kind==='bomb')owner.activeBombs=Math.max(0,owner.activeBombs-1);
     if(bomb.kind==='gas')return;
     this.audit.explosions++;if(chain)this.audit.chainReactions++;tone(95,.22,'sawtooth',.04);
     for(const c of cells){this.addFlame(c.x,c.y,bomb.owner,bomb.kind==='gas'?'gas':'fire',bomb.kind==='gas'?2000:480);if(this.tileAt(c.x,c.y)===2)this.destroyBox(c.x,c.y,bomb.owner);const other=this.bombAt(c.x,c.y);if(other)this.explode(other,true);}
@@ -244,13 +254,13 @@ class Arena extends Phaser.Scene {
     if(['mine','gas','grenade'].includes(kind)){
       let x=p.x,y=p.y;if(kind==='grenade'){const [dx,dy]=DIRS[p.dir];for(let n=0;n<2;n++){if(this.tileAt(x+dx,y+dy)!==0)break;x+=dx;y+=dy;}}
       if(this.bombAt(x,y))return false;
-      const pos=point(x,y),sprite=this.add.image(pos.x,pos.y-3,'atlas','bomb').setDisplaySize(25,33).setTint(kind==='gas'?0xa1e660:kind==='mine'?0xff86ae:0xffffff);this.entityLayer.add(sprite);
-      this.bombs.push({id:++this.bombId,x,y,owner:p.id,range:1,due:kind==='grenade'?this.tick+900:Infinity,sprite,kind});p.activeBombs++;this.audit.bombsPlaced++;
+      const pos=point(x,y),texture=TRAP_TEXTURES[kind],sprite=this.add.image(pos.x,pos.y-3,texture||'atlas',texture?undefined:'bomb').setDisplaySize(kind==='mine'?36:25,kind==='mine'?28:33);this.entityLayer.add(sprite);
+      this.bombs.push({id:++this.bombId,x,y,owner:p.id,range:1,due:kind==='grenade'?this.tick+900:Infinity,sprite,kind});this.audit.bombsPlaced++;
     }else{
       const pos=point(p.x,p.y),sprite=this.add.image(pos.x,pos.y,'atlas',kind==='ice'?'power-shield':'power-fire').setDisplaySize(22,22);this.effectsLayer.add(sprite);
       this.projectiles.push({x:p.x,y:p.y,dir:p.dir,kind,owner:p.id,sprite,next:this.tick+50,steps:kind==='rocket'?COLS+ROWS:3});tone(kind==='ice'?850:280,.1,'triangle',.04);
     }
-    p.ammo--;if(!p.ammo)p.weapon=null;return true;
+    p.ammo--;if(!p.ammo)p.weapon=null;this.showWeaponStatus(p,!p.ammo);return true;
   }
   updateProjectiles(){
     for(const shot of [...this.projectiles]){
@@ -299,7 +309,7 @@ class Arena extends Phaser.Scene {
   }
   networkState(){
     return {matchId:this.netRound,phase:this.phase,round:this.round,tick:this.tick,remaining:this.remaining,options:{...options},map:this.map,
-      players:this.players.map(p=>({id:p.id,x:p.x,y:p.y,char:p.char,human:p.human,name:p.name,alive:p.alive,range:p.range,capacity:p.capacity,speed:p.speed,activeBombs:p.activeBombs,score:p.score,shield:p.shield,lives:p.lives,dir:p.dir,renderX:p.sprite.x,renderY:p.sprite.y,invulnerable:p.invulnerable,frozenUntil:p.frozenUntil})),
+      players:this.players.map(p=>({id:p.id,x:p.x,y:p.y,char:p.char,human:p.human,name:p.name,alive:p.alive,range:p.range,capacity:p.capacity,speed:p.speed,activeBombs:p.activeBombs,score:p.score,shield:p.shield,lives:p.lives,weapon:p.weapon,ammo:p.ammo,dir:p.dir,renderX:p.sprite.x,renderY:p.sprite.y,invulnerable:p.invulnerable,frozenUntil:p.frozenUntil})),
       bombs:this.bombs.map(({id,x,y,owner,kind})=>({id,x,y,owner,kind})),flames:this.flames.map(({x,y,owner,kind})=>({x,y,owner,kind})),items:[...this.items.values()].map(({x,y,type})=>({x,y,type})),projectiles:this.projectiles.map(({x,y,owner,kind})=>({x,y,owner,kind})),audit:{...this.audit},winnerId:this.winnerId,lastWon:this.lastWon,finished:this.finished};
   }
   applyNetworkState(state){
@@ -310,13 +320,13 @@ class Arena extends Phaser.Scene {
       $('menu').hidden=true;$('room-bar').hidden=false;$('p2-guide').hidden=true;$('p1-keys').textContent='↑ ↓ ← → / WASD';$('control-player').textContent='你的角色';$('pause-guide').textContent='房主暂停';$('game').focus();
     }
     const mapString=JSON.stringify(state.map);if(fresh||mapString!==this.netMapString){this.map=state.map.map(row=>[...row]);this.netMapString=mapString;this.drawMap();}
-    for(const data of state.players){const p=this.players[data.id];if(!p)continue;Object.assign(p,data);p.targetX=data.renderX;p.targetY=data.renderY;p.sprite.setFrame(CHAR_FRAMES[p.char]+(p.dir===0?'-up':'-down')).setFlipX(p.dir===3).setAlpha(p.alive?(this.tick<p.invulnerable?.65:1):.25).setTint(!p.alive?0x506579:p.frozenUntil>this.tick?0x83d9ff:0xffffff);p.ring.setVisible(p.alive);}
+    for(const data of state.players){const p=this.players[data.id];if(!p)continue;const changed=p.weapon!==data.weapon||p.ammo!==data.ammo,finished=!!p.weapon&&!data.weapon;Object.assign(p,data);if(fresh||changed)this.showWeaponStatus(p,finished);p.targetX=data.renderX;p.targetY=data.renderY;p.sprite.setFrame(CHAR_FRAMES[p.char]+(p.dir===0?'-up':'-down')).setFlipX(p.dir===3).setAlpha(p.alive?(this.tick<p.invulnerable?.65:1):.25).setTint(!p.alive?0x506579:p.frozenUntil>this.tick?0x83d9ff:0xffffff);p.ring.setVisible(p.alive);}
     const visuals=[];
-    for(const b of state.bombs)visuals.push({key:'bomb-'+b.id,x:b.x,y:b.y,frame:'bomb',size:30,tint:b.kind==='gas'?0xa1e660:b.kind==='mine'?0xff86ae:0xffffff});
+    for(const b of state.bombs)visuals.push({key:'bomb-'+b.id,x:b.x,y:b.y,texture:TRAP_TEXTURES[b.kind],frame:TRAP_TEXTURES[b.kind]?undefined:'bomb',size:30});
     for(const f of state.flames)visuals.push({key:'flame-'+key(f.x,f.y)+'-'+f.kind,x:f.x,y:f.y,frame:f.kind==='ice'?'power-shield':'power-fire',size:40,tint:f.kind==='ice'?0x91e5ff:0xffaa38});
     for(const item of state.items)visuals.push({key:'item-'+key(item.x,item.y),x:item.x,y:item.y,frame:{bomb:'power-bomb',fire:'power-fire',speed:'power-speed',shield:'power-shield',glove:'power-speed',life:'power-shield',flame:'power-fire',ice:'power-shield',gas:'power-speed',grenade:'power-bomb',mine:'power-bomb',rocket:'power-fire'}[item.type],size:28});
     state.projectiles.forEach((s,i)=>visuals.push({key:'shot-'+i,x:s.x,y:s.y,frame:s.kind==='ice'?'power-shield':'power-fire',size:22}));
-    const live=new Set();for(const v of visuals){live.add(v.key);const pos=point(v.x,v.y);let sprite=this.remoteVisuals.get(v.key);if(!sprite){sprite=this.add.image(pos.x,pos.y,'atlas',v.frame);this.effectsLayer.add(sprite);this.remoteVisuals.set(v.key,sprite);}sprite.setPosition(pos.x,pos.y).setDisplaySize(v.size,v.size).setTint(v.tint||0xffffff);}
+    const live=new Set();for(const v of visuals){live.add(v.key);const pos=point(v.x,v.y);let sprite=this.remoteVisuals.get(v.key);if(!sprite){sprite=this.add.image(pos.x,pos.y,v.texture||'atlas',v.frame);this.effectsLayer.add(sprite);this.remoteVisuals.set(v.key,sprite);}sprite.setPosition(pos.x,pos.y).setDisplaySize(v.size,v.size).setTint(v.tint||0xffffff);}
     for(const [id,sprite] of this.remoteVisuals)if(!live.has(id)){sprite.destroy();this.remoteVisuals.delete(id);}
     this.bombs=state.bombs;this.flames=state.flames;this.items=new Map(state.items.map(item=>[key(item.x,item.y),item]));
     this.phase=state.phase;$('round-label').textContent='ROUND '+String(this.round).padStart(2,'0');$('mode-label').textContent=options.match==='coop'?'联机合作':'联机对战';$('pause-overlay').hidden=this.phase!=='paused';$('resume').disabled=true;$('resume').textContent='等待房主继续';$('pause-button').disabled=true;$('result-overlay').hidden=this.phase!=='result';$('phase-label').textContent=this.phase==='paused'?'房主暂停中':this.phase==='result'?'对局结束':'正在联机';syncControls();if(this.phase!=='playing')window.bubbleControls?.release();
@@ -339,7 +349,7 @@ class Arena extends Phaser.Scene {
       }else this.collect(p);
       p.sprite.setAlpha(this.tick<p.invulnerable?(Math.floor(this.tick/110)%2?.45:1):1);p.sprite.setTint(p.frozenUntil>this.tick?0x83d9ff:0xffffff);
     }
-    for(const b of [...this.bombs]){if(b.due<=this.tick)this.explode(b);else if(!b.removed){const pulse=1+Math.sin(this.tick*.025)*.05;b.sprite.setDisplaySize(26*pulse,35*pulse);}}
+    for(const b of [...this.bombs]){if(b.due<=this.tick)this.explode(b);else if(!b.removed&&!TRAP_TEXTURES[b.kind]){const pulse=1+Math.sin(this.tick*.025)*.05;b.sprite.setDisplaySize(26*pulse,35*pulse);}}
     this.updateProjectiles();
     for(const f of [...this.flames]){if(this.tick>=f.until){f.halo.destroy();f.sprite.destroy();this.flames=this.flames.filter(v=>v!==f);}else f.sprite.setAlpha(.65+.3*Math.sin(this.tick*.05));}
     for(const p of this.players){

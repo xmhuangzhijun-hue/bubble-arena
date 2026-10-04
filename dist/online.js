@@ -13,7 +13,8 @@ function validateNetworkState(s){
   const fields=['id','x','y','char','range','capacity','speed','activeBombs','score','shield','lives','dir','renderX','renderY','invulnerable','frozenUntil'];
   const players=[];for(const [id,p] of s.players.entries()){
     if(!p||p.id!==id||!Number.isInteger(p.char)||p.char<0||p.char>3||fields.some(f=>!Number.isFinite(p[f]))||p.x<0||p.x>=COLS||p.y<0||p.y>=ROWS||p.renderX<0||p.renderX>832||p.renderY<0||p.renderY>616||typeof p.alive!=='boolean')return null;
-    const clean={};for(const f of fields)clean[f]=p[f];players.push({...clean,human:!!p.human,name:p.name?safeName(p.name):null,alive:p.alive});
+    const weapon=p.weapon??null,ammo=p.ammo??0;if((weapon!==null&&!Object.hasOwn(WEAPONS,weapon))||!Number.isInteger(ammo)||ammo<0||ammo>5)return null;
+    const clean={};for(const f of fields)clean[f]=p[f];players.push({...clean,human:!!p.human,name:p.name?safeName(p.name):null,alive:p.alive,weapon,ammo});
   }
   const bounded=(values,max,kinds)=>Array.isArray(values)&&values.length<=max&&values.every(v=>v&&Number.isInteger(v.x)&&Number.isInteger(v.y)&&v.x>=0&&v.x<COLS&&v.y>=0&&v.y<ROWS&&kinds.includes(v.kind||v.type));
   if(!bounded(s.bombs,128,['bomb','mine','gas','grenade'])||!bounded(s.flames,256,['fire','ice','gas'])||!bounded(s.items,195,['bomb','fire','speed','shield','glove','life','flame','ice','gas','grenade','mine','rocket'])||!bounded(s.projectiles,32,['flame','ice','rocket']))return null;
